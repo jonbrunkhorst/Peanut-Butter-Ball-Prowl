@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grandma's Peanut Butter Ball Prowl</title>
+<style>
+  :root{
+    --bg-a:#FFE29A;
+    --bg-b:#FFB86B;
+    --card:#FFFFFF;
+    --card-line:#F0DEC4;
+    --ink:#4A2E1E;
+    --ink-dim:#9A7B62;
+    --pb-amber:#C98A3B;
+    --pb-amber-dim:#E9C48A;
+    --pop-pink:#FF6F9C;
+    --good:#3DDC84;
+    --alert:#FF5D5D;
+  }
+  /* Rainbow lane palette — assigned per-racer via JS, cycles if >8 racers */
+  .lane-0{ --lc:#FF6F9C; } .lane-1{ --lc:#FF9F45; } .lane-2{ --lc:#F4C430; }
+  .lane-3{ --lc:#6BCB77; } .lane-4{ --lc:#4D96FF; } .lane-5{ --lc:#B983FF; }
+  .lane-6{ --lc:#2EC4B6; } .lane-7{ --lc:#FF6B6B; }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(255,255,255,0.35) 0 3px, transparent 4px) 0 0/64px 64px,
+      radial-gradient(circle at 55% 60%, rgba(255,255,255,0.25) 0 3px, transparent 4px) 0 0/64px 64px,
+      linear-gradient(135deg, var(--bg-a), var(--bg-b));
+    color:var(--ink);
+    font-family:'Nunito', sans-serif;
+    min-height:100vh;
+    padding:24px 16px 60px;
+  }
+  h1,h2,h3{font-family:'Fredoka', sans-serif; margin:0;}
+  .mono{font-family:'JetBrains Mono', monospace;}
+  .wrap{max-width:1180px; margin:0 auto;}
+
+  header.top{
+    display:flex; align-items:center; justify-content:space-between;
+    padding-bottom:14px; margin-bottom:22px; flex-wrap:wrap; gap:10px;
+  }
+  header.top .title{display:flex; align-items:center; gap:14px;}
+  header.top h1{font-size:32px; color:var(--ink); text-shadow:2px 2px 0 rgba(255,255,255,0.5);}
+  header.top .sub{color:#7a5638; font-size:13px; font-weight:700;}
+  .badge-tag{
+    font-family:'Fredoka', sans-serif; font-size:12px; color:#fff; background:var(--pop-pink);
+    padding:6px 14px; border-radius:20px; letter-spacing:0.02em; box-shadow:0 3px 0 #d1547c;
+  }
+
+  .panel{
+    background:var(--card);
+    border:2px solid var(--card-line);
+    border-radius:20px;
+    padding:22px;
+    box-shadow:0 6px 0 var(--card-line);
+  }
+  .panel-label{
+    font-family:'Fredoka', sans-serif; font-size:13px; color:var(--pb-amber); letter-spacing:0.03em;
+    margin-bottom:12px; padding-bottom:8px; border-bottom:2px dashed var(--pb-amber-dim);
+  }
+
+  /* ---- Setup ---- */
+  .roster-input{display:flex; gap:8px; margin-bottom:14px;}
+  .roster-input input{
+    flex:1; background:#FFFBF2; border:2px solid var(--card-line);
+    color:var(--ink); padding:11px 14px; border-radius:12px; font-family:'Nunito',sans-serif; font-size:15px; font-weight:700;
+  }
+  .roster-input input:focus{outline:none; border-color:var(--pop-pink);}
+  .btn{
+    font-family:'Fredoka', sans-serif; letter-spacing:0.02em;
+    background:#FFFBF2; color:var(--ink); border:2px solid var(--card-line);
+    padding:11px 20px; border-radius:12px; cursor:pointer; font-size:14px; transition:transform .12s;
+    box-shadow:0 3px 0 var(--card-line);
+  }
+  .btn:hover:not(:disabled){transform:translateY(-2px);}
+  .btn:active:not(:disabled){transform:translateY(1px); box-shadow:0 1px 0 var(--card-line);}
+  .btn:disabled{opacity:0.4; cursor:not-allowed;}
+  .btn-add{background:var(--pb-amber); border-color:var(--pb-amber); color:#fff; box-shadow:0 3px 0 #9c6a28;}
+  .btn-start{
+    background:var(--pop-pink); border-color:var(--pop-pink); color:#fff;
+    font-size:16px; padding:13px 28px; box-shadow:0 4px 0 #d1547c;
+  }
+  .btn-start:hover:not(:disabled){transform:translateY(-2px);}
+  .btn-ghost{background:#FFFBF2;}
+
+  .chips{display:flex; flex-wrap:wrap; gap:8px; min-height:36px; margin-bottom:10px;}
+  .chip{
+    background:#FFFBF2; border:2px solid var(--card-line); border-radius:20px;
+    padding:6px 14px; font-size:14px; font-weight:700; display:flex; align-items:center; gap:8px;
+  }
+  .chip button{
+    background:none; border:none; color:var(--ink-dim); cursor:pointer; font-size:15px; padding:0; line-height:1;
+  }
+  .chip button:hover{color:var(--alert);}
+  .setup-footer{display:flex; align-items:center; justify-content:space-between; margin-top:10px; flex-wrap:wrap; gap:10px;}
+  .count-note{color:var(--ink-dim); font-size:13px; font-weight:700;}
+
+  /* ---- Race status bar ---- */
+  .status-bar{
+    display:flex; gap:22px; align-items:center; flex-wrap:wrap;
+    padding:12px 18px; background:var(--card); border:2px solid var(--card-line);
+    border-radius:16px; margin-bottom:18px; font-size:14px; font-weight:700;
+    box-shadow:0 4px 0 var(--card-line);
+  }
+  .status-pill{display:flex; align-items:center; gap:8px;}
+  .dot{width:10px; height:10px; border-radius:50%; background:var(--ink-dim); display:inline-block;}
+  .dot.live{background:var(--good); box-shadow:0 0 8px var(--good); animation:pulse 1.2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
+  .elapsed b{color:var(--pop-pink); font-family:'JetBrains Mono',monospace;}
+  .share-btn{margin-left:auto;}
+
+  /* ---- Layout: standings + lane grid ---- */
+  .race-layout{display:grid; grid-template-columns:230px 1fr; gap:18px; align-items:start;}
+  @media (max-width:820px){ .race-layout{grid-template-columns:1fr;} }
+
+  .standings-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px;}
+  .standings-list li{
+    display:flex; align-items:center; gap:8px; padding:8px 10px;
+    background:var(--card); border:2px solid var(--card-line); border-radius:12px;
+    font-size:13px; font-weight:700; min-height:32px;
+  }
+  .standings-list li.filled{border-color:var(--lane-color, var(--pb-amber));}
+  .pick-num{
+    font-family:'Fredoka',sans-serif; color:var(--pop-pink); font-size:15px; width:20px; text-align:center;
+  }
+  .standings-list li .pname{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .standings-list li .ptime{color:var(--ink-dim); font-size:10.5px; font-family:'JetBrains Mono',monospace;}
+
+  .lane-grid{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px;
+  }
+  .lane-card{
+    background:var(--card); border:3px solid var(--lc, var(--card-line)); border-radius:18px; padding:12px;
+    position:relative; box-shadow:0 5px 0 var(--lc, var(--card-line));
+  }
+  .lane-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
+  .lane-name{font-family:'Fredoka',sans-serif; font-size:15px; color:var(--lc, var(--ink));}
+  .lane-status{font-size:10.5px; color:var(--ink-dim); font-weight:700;}
+  .lane-canvas-wrap{display:flex; justify-content:center; margin-bottom:8px; background:#FFFBF2; border-radius:10px; padding:4px;}
+  canvas{display:block; border-radius:6px;}
+  .progress-outer{
+    background:#FFF0D6; border:2px solid var(--card-line); border-radius:20px;
+    height:10px; overflow:hidden; margin-bottom:6px;
+  }
+  .progress-inner{height:100%; background:var(--lc, var(--pb-amber)); width:0%; transition:width .3s linear; border-radius:20px;}
+  .lane-foot{display:flex; justify-content:space-between; font-size:11px; color:var(--ink-dim); font-weight:700; font-family:'JetBrains Mono',monospace;}
+  .home-badge{
+    position:absolute; top:-10px; right:10px; background:var(--good); color:#053019;
+    font-family:'Fredoka',sans-serif; font-size:11px; padding:4px 10px; border-radius:12px;
+    box-shadow:0 2px 0 #1c9c53; animation:pop-in .25s ease-out;
+  }
+  @keyframes pop-in{ from{ transform:scale(0.3) rotate(-8deg); opacity:0;} to{ transform:scale(1) rotate(0); opacity:1;} }
+
+  /* ---- Results ---- */
+  #resultsArea{display:none;}
+  .banner{
+    text-align:center; font-family:'Fredoka',sans-serif; font-size:19px;
+    color:#fff; border-radius:16px;
+    padding:16px; margin-bottom:18px;
+    background:linear-gradient(90deg, var(--pop-pink), var(--pb-amber));
+    box-shadow:0 5px 0 #b9773a;
+  }
+  table.cutsheet{width:100%; border-collapse:separate; border-spacing:0 6px; font-size:14px; margin-top:6px;}
+  table.cutsheet th{color:var(--ink-dim); font-weight:800; text-transform:uppercase; font-size:11px; letter-spacing:0.04em; text-align:left; padding:0 12px 4px;}
+  table.cutsheet td{background:var(--card); padding:10px 12px; border-top:2px solid var(--card-line); border-bottom:2px solid var(--card-line); font-weight:700;}
+  table.cutsheet td:first-child{border-left:2px solid var(--card-line); border-radius:12px 0 0 12px;}
+  table.cutsheet td:last-child{border-right:2px solid var(--card-line); border-radius:0 12px 12px 0;}
+  table.cutsheet td.pick{color:var(--pop-pink); font-family:'Fredoka',sans-serif; font-size:17px;}
+
+  footer.note{text-align:center; color:#8a5c34; font-size:12px; margin-top:30px; font-weight:700;}
+
+  #raceArea{display:none;}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="title">
+      <h1>Grandma's Peanut Butter Ball Prowl</h1>
+      <span class="sub">search out every peanut butter ball, first one done picks first!</span>
+    </div>
+    <span class="badge-tag">🏆 FIRST TO FIND ALL 10 PEANUT BUTTER BALLS = FIRST PICK</span>
+  </header>
+
+  <!-- SETUP -->
+  <div class="panel" id="setupPanel">
+    <div class="panel-label">Roster / Add Racers</div>
+    <div class="roster-input">
+      <input type="text" id="nameField" placeholder="Type a name and hit Add..." maxlength="16">
+      <button class="btn btn-add" id="addBtn">Add</button>
+    </div>
+    <div class="chips" id="chipList"></div>
+    <div class="setup-footer">
+      <div class="count-note" id="countNote">0 racers — need at least 2</div>
+      <button class="btn btn-start" id="startBtn" disabled>🎁 Start The Hunt!</button>
+    </div>
+  </div>
+
+  <!-- RACE -->
+  <div id="raceArea">
+    <div class="status-bar">
+      <span class="status-pill"><span class="dot live" id="liveDot"></span><span id="statusText">Prowling...</span></span>
+      <span class="elapsed">ELAPSED <b id="elapsedClock">00:00:00</b></span>
+      <span id="foundCount">0 of 0 peanut butter balls found</span>
+      <button class="btn btn-ghost share-btn" id="shareBtn">Copy Sync Link</button>
+    </div>
+    <div class="race-layout">
+      <div>
+        <div class="panel-label" style="margin-bottom:8px;">Draft Order</div>
+        <ul class="standings-list" id="standingsList"></ul>
+      </div>
+      <div class="lane-grid" id="laneGrid"></div>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="resultsArea">
+    <div class="banner" id="banner">🎉 ALL PEANUT BUTTER BALLS FOUND — DRAFT ORDER SET! 🎉</div>
+    <table class="cutsheet">
+      <thead><tr><th>Pick</th><th>Racer</th><th>Balls Found</th><th>Time</th></tr></thead>
+      <tbody id="cutsheetBody"></tbody>
+    </table>
+    <div style="margin-top:16px; text-align:center;">
+      <button class="btn btn-ghost" id="rerunBtn">Re-run With Same Roster</button>
+    </div>
+  </div>
+
+  <footer class="note">GRANDMA'S PEANUT BUTTER BALL PROWL — for entertainment / draft-order purposes only.</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ===================== PRNG =====================
+  function mulberry32(seed){
+    let a = seed >>> 0;
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function hashSeed(str){
+    let h = 1779033703 ^ str.length;
+    for (let i=0;i<str.length;i++){
+      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+      h = (h<<13)|(h>>>19);
+    }
+    return function(){
+      h = Math.imul(h ^ (h>>>16), 2246822507);
+      h = Math.imul(h ^ (h>>>13), 3266489909);
+      return (h ^= h>>>16) >>> 0;
+    };
+  }
+
+  // ===================== Maze =====================
+  const COLS = 11, ROWS = 8, CELL = 26;
+
+  function makeMaze(rng){
+    const cells = [];
+    for (let y=0;y<ROWS;y++){
+      const row=[];
+      for (let x=0;x<COLS;x++) row.push({N:true,E:true,S:true,W:true,visited:false});
+      cells.push(row);
+    }
+    const at = (x,y)=>cells[y][x];
+    const DIRS = [[0,-1,'N','S'],[1,0,'E','W'],[0,1,'S','N'],[-1,0,'W','E']];
+    function shuffle(arr){
+      for (let i=arr.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=arr[i]; arr[i]=arr[j]; arr[j]=t; }
+      return arr;
+    }
+    const stack = [[0,0]];
+    at(0,0).visited = true;
+    while (stack.length){
+      const [cx,cy] = stack[stack.length-1];
+      const dirs = shuffle(DIRS.slice());
+      let advanced=false;
+      for (const [dx,dy,wallHere,wallThere] of dirs){
+        const nx=cx+dx, ny=cy+dy;
+        if (nx<0||nx>=COLS||ny<0||ny>=ROWS) continue;
+        if (at(nx,ny).visited) continue;
+        at(cx,cy)[wallHere]=false;
+        at(nx,ny)[wallThere]=false;
+        at(nx,ny).visited=true;
+        stack.push([nx,ny]);
+        advanced=true;
+        break;
+      }
+      if (!advanced) stack.pop();
+    }
+    for (let y=0;y<ROWS;y++){
+      for (let x=0;x<COLS;x++){
+        if (x<COLS-1 && at(x,y).E && rng()<0.18){ at(x,y).E=false; at(x+1,y).W=false; }
+        if (y<ROWS-1 && at(x,y).S && rng()<0.18){ at(x,y).S=false; at(x,y+1).N=false; }
+      }
+    }
+    return { cells };
+  }
+  function neighbors(maze,x,y){
+    const c = maze.cells[y][x];
+    const out=[];
+    if (!c.N && y>0) out.push([x,y-1]);
+    if (!c.S && y<ROWS-1) out.push([x,y+1]);
+    if (!c.E && x<COLS-1) out.push([x+1,y]);
+    if (!c.W && x>0) out.push([x-1,y]);
+    return out;
+  }
+  function bfsPath(maze,start,goal){
+    const key=(x,y)=>y*COLS+x;
+    const q=[start]; const cameFrom=new Map(); const seen=new Set([key(...start)]);
+    while(q.length){
+      const cur=q.shift();
+      if (cur[0]===goal[0] && cur[1]===goal[1]) break;
+      for (const n of neighbors(maze,cur[0],cur[1])){
+        const k=key(...n);
+        if (!seen.has(k)){ seen.add(k); cameFrom.set(k,cur); q.push(n); }
+      }
+    }
+    const gk=key(...goal);
+    if (!seen.has(gk)) return null;
+    const path=[goal]; let ck=gk;
+    while (ck!==key(...start)){ const prev=cameFrom.get(ck); path.push(prev); ck=key(...prev); }
+    path.reverse();
+    return path;
+  }
+
+  // ===================== Per-lane simulation =====================
+  const BALL_COUNT = 10;
+  const STEP_MIN_MS = 10000, STEP_MAX_MS = 48000; // tuned for ~30min average race (was 20500-272000 / ~4hr)
+
+  function simulateLane(maze, placeRng, timeRng){
+    const allCells=[];
+    for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) allCells.push([x,y]);
+    const candidates = allCells.filter(([x,y])=>!(x===0&&y===0));
+    for (let i=candidates.length-1;i>0;i--){ const j=Math.floor(placeRng()*(i+1)); const t=candidates[i]; candidates[i]=candidates[j]; candidates[j]=t; }
+    const ballCells = candidates.slice(0, BALL_COUNT);
+    const balls = ballCells.map(([x,y])=>({x,y,found:false}));
+
+    let pos=[0,0];
+    const fullPath=[pos];
+    const collectStepByBall = {};
+
+    function collectIfHere(){
+      balls.forEach((b,i)=>{
+        if (!b.found && b.x===pos[0] && b.y===pos[1]){
+          b.found = true;
+          collectStepByBall[i] = fullPath.length-1;
+        }
+      });
+    }
+    collectIfHere();
+
+    let guard=0;
+    while (balls.some(b=>!b.found) && guard<5000){
+      guard++;
+      const remaining = balls.filter(b=>!b.found);
+      let best=null;
+      for (const b of remaining){
+        const p = bfsPath(maze,pos,[b.x,b.y]);
+        if (p && (!best || p.length<best.length)) best=p;
+      }
+      const pathToTake = best;
+      if (!pathToTake || pathToTake.length<2) break;
+      pos = pathToTake[1];
+      fullPath.push(pos);
+      collectIfHere();
+    }
+
+    // per-step timing (deterministic via timeRng), cumulative ms
+    const stepDurations=[0];
+    for (let i=1;i<fullPath.length;i++){
+      stepDurations.push(STEP_MIN_MS + timeRng()*(STEP_MAX_MS-STEP_MIN_MS));
+    }
+    const cumTime=[0];
+    for (let i=1;i<stepDurations.length;i++) cumTime.push(cumTime[i-1]+stepDurations[i]);
+
+    return { balls, fullPath, cumTime, collectStepByBall, finishMs: cumTime[cumTime.length-1] };
+  }
+
+  // ===================== State =====================
+  let roster = [];
+  let raceSeedVal = null;
+  let startTimestamp = null;
+  let maze = null;
+  let lanes = []; // {name, sim, el:{...}}
+  let rafId = null;
+  let finishedOrder = [];
+
+  const $ = (id)=>document.getElementById(id);
+  const nameField=$('nameField'), addBtn=$('addBtn'), chipList=$('chipList'),
+        countNote=$('countNote'), startBtn=$('startBtn'), setupPanel=$('setupPanel'),
+        raceArea=$('raceArea'), resultsArea=$('resultsArea'), laneGrid=$('laneGrid'),
+        standingsList=$('standingsList'), elapsedClock=$('elapsedClock'), foundCount=$('foundCount'),
+        statusText=$('statusText'), shareBtn=$('shareBtn'), cutsheetBody=$('cutsheetBody'),
+        rerunBtn=$('rerunBtn'), banner=$('banner');
+
+  function renderChips(){
+    chipList.innerHTML='';
+    roster.forEach((name,i)=>{
+      const chip=document.createElement('div');
+      chip.className='chip';
+      chip.innerHTML = '<span>'+escapeHtml(name)+'</span>';
+      const rm=document.createElement('button');
+      rm.textContent='✕';
+      rm.onclick=()=>{ roster.splice(i,1); renderChips(); };
+      chip.appendChild(rm);
+      chipList.appendChild(chip);
+    });
+    countNote.textContent = roster.length + (roster.length===1?' racer':' racers') + (roster.length<2 ? ' — need at least 2':'');
+    startBtn.disabled = roster.length<2;
+  }
+  function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function addName(){
+    const v = nameField.value.trim();
+    if (!v) return;
+    if (roster.length>=12){ nameField.value=''; return; }
+    roster.push(v);
+    nameField.value='';
+    renderChips();
+    nameField.focus();
+  }
+  addBtn.onclick = addName;
+  nameField.addEventListener('keydown', e=>{ if (e.key==='Enter') addName(); });
+
+  startBtn.onclick = ()=>{
+    raceSeedVal = Math.floor(Math.random()*1e9);
+    startTimestamp = Date.now();
+    beginRace();
+    updateShareUrl();
+  };
+
+  shareBtn.onclick = ()=>{
+    updateShareUrl();
+    navigator.clipboard.writeText(window.location.href).then(()=>{
+      shareBtn.textContent='Link Copied!';
+      setTimeout(()=>{ shareBtn.textContent='Copy Sync Link'; }, 1800);
+    }).catch(()=>{
+      shareBtn.textContent='Copy failed — copy URL manually';
+    });
+  };
+
+  function updateShareUrl(){
+    const params = new URLSearchParams();
+    params.set('seed', raceSeedVal);
+    params.set('start', startTimestamp);
+    params.set('roster', roster.join('|'));
+    const url = window.location.origin + window.location.pathname + '?' + params.toString();
+    try {
+      window.history.replaceState({}, '', url);
+    } catch (e) {
+      // Sandboxed preview environments (e.g. srcdoc iframes) can block the
+      // History API with a SecurityError — harmless here, just skip silently.
+    }
+  }
+
+  function tryLoadFromUrl(){
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('seed') && params.has('start') && params.has('roster')){
+      raceSeedVal = parseInt(params.get('seed'),10);
+      startTimestamp = parseInt(params.get('start'),10);
+      roster = params.get('roster').split('|').filter(Boolean);
+      if (roster.length>=2){ beginRace(); return true; }
+    }
+    return false;
+  }
+
+  function beginRace(){
+    setupPanel.style.display='none';
+    raceArea.style.display='block';
+    resultsArea.style.display='none';
+    finishedOrder=[];
+    standingsList.innerHTML='';
+    for (let i=0;i<roster.length;i++){
+      const li=document.createElement('li');
+      li.innerHTML = '<span class="pick-num">'+(i+1)+'</span><span class="pname" style="color:var(--text-dim);">—</span>';
+      standingsList.appendChild(li);
+    }
+
+    const seedFn = hashSeed('PB25-'+raceSeedVal);
+    maze = makeMaze(mulberry32(seedFn()));
+
+    laneGrid.innerHTML='';
+    lanes = roster.map((name, idx)=>{
+      const placeRng = mulberry32((seedFn() ^ ((idx+1)*0x9E3779B1)) >>> 0);
+      const timeRng  = mulberry32((seedFn() ^ ((idx+1)*0x85EBCA6B)) >>> 0);
+      const sim = simulateLane(maze, placeRng, timeRng);
+
+      const laneColorHex = ['#FF6F9C','#FF9F45','#F4C430','#6BCB77','#4D96FF','#B983FF','#2EC4B6','#FF6B6B'][idx % 8];
+      const card=document.createElement('div');
+      card.className='lane-card lane-'+(idx % 8);
+      card.innerHTML =
+        '<div class="lane-head"><span class="lane-name">'+escapeHtml(name)+'</span><span class="lane-status" data-role="status">Searching...</span></div>'+
+        '<div class="lane-canvas-wrap"><canvas width="'+(COLS*CELL)+'" height="'+(ROWS*CELL)+'"></canvas></div>'+
+        '<div class="progress-outer"><div class="progress-inner" data-role="bar"></div></div>'+
+        '<div class="lane-foot"><span data-role="count">0 / '+BALL_COUNT+' found</span><span data-role="time"></span></div>';
+      laneGrid.appendChild(card);
+
+      return {
+        name, sim, card, colorHex: laneColorHex,
+        canvas: card.querySelector('canvas'),
+        ctx: card.querySelector('canvas').getContext('2d'),
+        statusEl: card.querySelector('[data-role="status"]'),
+        barEl: card.querySelector('[data-role="bar"]'),
+        countEl: card.querySelector('[data-role="count"]'),
+        timeEl: card.querySelector('[data-role="time"]'),
+        finished:false
+      };
+    });
+
+    if (rafId) cancelAnimationFrame(rafId);
+    tick();
+  }
+
+  function stepIndexAt(cumTime, elapsed){
+    // linear scan (arrays are short, fine)
+    let idx=0;
+    for (let i=0;i<cumTime.length;i++){
+      if (cumTime[i] <= elapsed) idx=i; else break;
+    }
+    return idx;
+  }
+
+  function fmtClock(ms){
+    const s = Math.floor(ms/1000);
+    const hh = String(Math.floor(s/3600)).padStart(2,'0');
+    const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    return hh+':'+mm+':'+ss;
+  }
+  function fmtDur(ms){
+    const s = Math.floor(ms/1000);
+    const m = Math.floor(s/60);
+    const rs = s%60;
+    return m+'m '+rs+'s';
+  }
+
+  function drawMaze(ctx, sim, elapsed, laneColor){
+    ctx.clearRect(0,0,COLS*CELL,ROWS*CELL);
+    // floor
+    ctx.fillStyle = '#FFF6E3';
+    ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
+
+    // walls (warm chocolate, rounded feel via thicker line + round caps)
+    ctx.strokeStyle = '#B98A5E';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let y=0;y<ROWS;y++){
+      for (let x=0;x<COLS;x++){
+        const c = maze.cells[y][x];
+        const px=x*CELL, py=y*CELL;
+        if (c.N){ ctx.moveTo(px,py); ctx.lineTo(px+CELL,py); }
+        if (c.W){ ctx.moveTo(px,py); ctx.lineTo(px,py+CELL); }
+        if (y===ROWS-1 && c.S){ ctx.moveTo(px,py+CELL); ctx.lineTo(px+CELL,py+CELL); }
+        if (x===COLS-1 && c.E){ ctx.moveTo(px+CELL,py); ctx.lineTo(px+CELL,py+CELL); }
+      }
+    }
+    ctx.stroke();
+
+    // entry marker (little doormat)
+    ctx.strokeStyle = laneColor;
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(3,3,CELL-6,CELL-6);
+
+    const curStep = stepIndexAt(sim.cumTime, elapsed);
+    // peanut butter balls
+    sim.balls.forEach((b,i)=>{
+      const found = sim.collectStepByBall[i]!==undefined && sim.collectStepByBall[i]<=curStep;
+      if (found) return;
+      const cx = b.x*CELL+CELL/2, cy=b.y*CELL+CELL/2;
+      ctx.fillStyle = '#C98A3B';
+      ctx.beginPath();
+      ctx.arc(cx,cy,4.6,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.beginPath();
+      ctx.arc(cx-1.3,cy-1.3,1.4,0,Math.PI*2);
+      ctx.fill();
+    });
+
+    // searcher (colored per-racer) — simple person token: body + head
+    const path = sim.fullPath;
+    const idx = Math.min(curStep, path.length-1);
+    const p0 = path[idx];
+    const p1 = path[Math.min(idx+1, path.length-1)];
+    const segStart = sim.cumTime[idx];
+    const segEnd = sim.cumTime[Math.min(idx+1, sim.cumTime.length-1)];
+    let t = segEnd>segStart ? (Math.min(elapsed,segEnd)-segStart)/(segEnd-segStart) : 1;
+    t = Math.max(0, Math.min(1,t));
+    const dx = p0[0] + (p1[0]-p0[0])*t;
+    const dy = p0[1] + (p1[1]-p0[1])*t;
+    const bounce = Math.sin((elapsed/160))*1.1; // gentle idle bounce for fun
+    const px = dx*CELL+CELL/2, py = dy*CELL+CELL/2+bounce;
+    // body
+    ctx.fillStyle = laneColor;
+    ctx.beginPath();
+    ctx.ellipse(px, py+2.5, 5.4, 6.2, 0, 0, Math.PI*2);
+    ctx.fill();
+    // head
+    ctx.fillStyle = '#F2D3B3';
+    ctx.beginPath();
+    ctx.arc(px, py-5, 3.6, 0, Math.PI*2);
+    ctx.fill();
+    // eyes
+    ctx.fillStyle = '#3A2415';
+    ctx.beginPath(); ctx.arc(px-1.3,py-5.2,0.7,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(px+1.3,py-5.2,0.7,0,Math.PI*2); ctx.fill();
+  }
+
+  function tick(){
+    const now = Date.now();
+    const elapsed = now - startTimestamp;
+    elapsedClock.textContent = fmtClock(elapsed);
+
+    let totalFound=0, totalBalls=0, doneCount=0;
+    lanes.forEach(lane=>{
+      const sim = lane.sim;
+      const curStep = stepIndexAt(sim.cumTime, elapsed);
+      const foundNow = Object.values(sim.collectStepByBall).filter(s=>s<=curStep).length;
+      totalFound += foundNow; totalBalls += sim.balls.length;
+
+      drawMaze(lane.ctx, sim, elapsed, lane.colorHex);
+
+      const pct = Math.round(100*foundNow/sim.balls.length);
+      lane.barEl.style.width = pct+'%';
+      lane.countEl.textContent = foundNow+' / '+sim.balls.length+' found';
+
+      const finished = elapsed >= sim.finishMs;
+      if (finished && !lane.finished){
+        lane.finished = true;
+        lane.card.classList.add('done');
+        const badge=document.createElement('div');
+        badge.className='home-badge';
+        badge.textContent='HOME!';
+        lane.card.appendChild(badge);
+        finishedOrder.push({name:lane.name, sim, finishMs: sim.finishMs, colorHex: lane.colorHex});
+        finishedOrder.sort((a,b)=>a.finishMs-b.finishMs);
+        renderStandings();
+      }
+      if (finished){
+        doneCount++;
+        lane.statusEl.textContent='Home!';
+        lane.timeEl.textContent = fmtDur(sim.finishMs);
+      } else {
+        lane.statusEl.textContent = 'Beelining to a treat!';
+        lane.timeEl.textContent='';
+      }
+    });
+
+    foundCount.textContent = totalFound+' of '+totalBalls+' peanut butter balls found';
+
+    if (doneCount>=lanes.length){
+      statusText.textContent='All peanut butter balls found!';
+      $('liveDot').classList.remove('live');
+      showResults();
+      return;
+    } else {
+      statusText.textContent='Prowling...';
+    }
+
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function renderStandings(){
+    const items = standingsList.querySelectorAll('li');
+    finishedOrder.forEach((f, i)=>{
+      const li = items[i];
+      if (!li) return;
+      const nameSpan = li.querySelector('.pname');
+      nameSpan.style.color = 'var(--ink)';
+      nameSpan.textContent = f.name;
+      li.classList.add('filled');
+      li.style.setProperty('--lane-color', f.colorHex);
+      if (!li.querySelector('.ptime')){
+        const t=document.createElement('span');
+        t.className='ptime';
+        t.textContent = fmtDur(f.finishMs);
+        li.appendChild(t);
+      } else {
+        li.querySelector('.ptime').textContent = fmtDur(f.finishMs);
+      }
+    });
+  }
+
+  function showResults(){
+    cutsheetBody.innerHTML='';
+    finishedOrder.forEach((f,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML =
+        '<td class="pick">'+(i+1)+'</td>'+
+        '<td>'+escapeHtml(f.name)+'</td>'+
+        '<td>'+f.sim.balls.length+' / '+f.sim.balls.length+'</td>'+
+        '<td>'+fmtDur(f.finishMs)+'</td>';
+      cutsheetBody.appendChild(tr);
+    });
+    resultsArea.style.display='block';
+  }
+
+  rerunBtn.onclick = ()=>{
+    resultsArea.style.display='none';
+    setupPanel.style.display='block';
+    raceArea.style.display='none';
+    try {
+      window.history.replaceState({}, '', window.location.origin + window.location.pathname);
+    } catch (e) {
+      // see note in updateShareUrl()
+    }
+  };
+
+  // init
+  if (!tryLoadFromUrl()){
+    renderChips();
+  }
+})();
+</script>
+</body>
+</html>
