@@ -117,12 +117,42 @@
   .maze-panel{margin-bottom:18px;}
   .maze-canvas-wrap{
     display:flex; justify-content:center; overflow-x:auto; background:#FFFBF2;
-    border-radius:12px; padding:10px;
+    border-radius:12px; padding:10px; position:relative;
   }
-  #mazeCanvas{display:block; border-radius:6px; max-width:none;}
+  #mazeCanvas{display:block; border-radius:6px; max-width:100%; height:auto;}
+  .countdown-overlay{
+    position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(255,251,242,0.94); border-radius:12px; z-index:5; text-align:center;
+  }
+  .countdown-num{
+    font-family:'Fredoka',sans-serif; font-size:64px; line-height:1; color:var(--pop-pink);
+    text-shadow:3px 3px 0 rgba(0,0,0,0.08);
+  }
+  .countdown-label{
+    font-family:'Fredoka',sans-serif; font-size:16px; color:var(--pb-amber); letter-spacing:0.05em; margin-top:8px;
+  }
+  @media (max-width:600px){
+    .countdown-num{font-size:44px;}
+    .countdown-label{font-size:13px;}
+  }
 
   .race-layout{display:grid; grid-template-columns:230px 1fr; gap:18px; align-items:start;}
   @media (max-width:820px){ .race-layout{grid-template-columns:1fr;} }
+
+  /* ---- Mobile tightening ---- */
+  @media (max-width:600px){
+    body{padding:14px 10px 40px;}
+    .panel{padding:14px; border-radius:16px;}
+    header.top h1{font-size:24px;}
+    header.top .sub{font-size:12px;}
+    .badge-tag{font-size:10.5px; padding:5px 11px;}
+    .maze-canvas-wrap{padding:6px;}
+    .status-bar{gap:12px; padding:10px 12px; font-size:12.5px;}
+    .share-btn{margin-left:0;}
+    .lane-grid{grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px;}
+    .lane-card{padding:9px;}
+    table.cutsheet{font-size:12.5px;}
+  }
 
   .standings-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px;}
   .standings-list li{
@@ -220,6 +250,10 @@
       <div class="panel-label">Grandma's House</div>
       <div class="maze-canvas-wrap">
         <canvas id="mazeCanvas"></canvas>
+        <div class="countdown-overlay" id="countdownOverlay">
+          <div class="countdown-num" id="countdownNum">60</div>
+          <div class="countdown-label">GET READY!</div>
+        </div>
       </div>
     </div>
     <div class="race-layout">
@@ -634,7 +668,8 @@
         standingsList=$('standingsList'), elapsedClock=$('elapsedClock'), foundCount=$('foundCount'),
         statusText=$('statusText'), shareBtn=$('shareBtn'), cutsheetBody=$('cutsheetBody'),
         rerunBtn=$('rerunBtn'), banner=$('banner'),
-        mazeCanvas=$('mazeCanvas'), mazeCtx=mazeCanvas.getContext('2d');
+        mazeCanvas=$('mazeCanvas'), mazeCtx=mazeCanvas.getContext('2d'),
+        countdownOverlay=$('countdownOverlay'), countdownNum=$('countdownNum');
 
   function renderChips(){
     chipList.innerHTML='';
@@ -665,9 +700,11 @@
   addBtn.onclick = addName;
   nameField.addEventListener('keydown', e=>{ if (e.key==='Enter') addName(); });
 
+  const PRE_RACE_COUNTDOWN_MS = 60000; // one-minute countdown before the hunt begins
+
   startBtn.onclick = ()=>{
     raceSeedVal = Math.floor(Math.random()*1e9);
-    startTimestamp = Date.now();
+    startTimestamp = Date.now() + PRE_RACE_COUNTDOWN_MS;
     beginRace();
     updateShareUrl();
   };
@@ -712,6 +749,30 @@
   let ballClaimTime = []; // parallel array: elapsed ms at which each ball was claimed (Infinity if never)
   let hazards = []; // [{name, fullPath, cumTime}, ...] — Grandma and Grandpa's simulated paths
 
+  // Sizes the maze canvas to whatever width is actually available (phone, tablet, desktop)
+  // instead of assuming desktop space, then picks the largest cell size that still fits —
+  // so the whole maze is visible at once on a small screen instead of needing pinch-zoom /
+  // horizontal scrolling. Re-run on resize/orientation change so rotating a phone re-fits it.
+  function fitMazeCanvas(){
+    if (!COLS || !ROWS) return;
+    const wrap = mazeCanvas.parentElement;
+    const availWidth = Math.max(220, (wrap.clientWidth || window.innerWidth) - 4);
+    const availHeight = Math.max(220, Math.floor(window.innerHeight * 0.6));
+    CELL = Math.max(8, Math.min(26, Math.floor(availWidth / COLS), Math.floor(availHeight / ROWS)));
+    mazeCanvas.width = COLS*CELL;
+    mazeCanvas.height = ROWS*CELL;
+  }
+  let resizeRaf = null;
+  window.addEventListener('resize', ()=>{
+    if (resizeRaf) cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(()=>{
+      if (raceArea.style.display==='block' && maze){
+        fitMazeCanvas();
+        drawSharedMaze(mazeCtx, Date.now()-startTimestamp);
+      }
+    });
+  });
+
   function beginRace(){
     setupPanel.style.display='none';
     raceArea.style.display='block';
@@ -729,9 +790,7 @@
     // board size is based on roster size only — Grandma doesn't count toward it
     const dims = mazeDims(roster.length, POOL_BALLS_PER_RACER);
     COLS = dims.cols; ROWS = dims.rows;
-    CELL = Math.max(12, Math.min(26, Math.floor(1060 / COLS)));
-    mazeCanvas.width = COLS*CELL;
-    mazeCanvas.height = ROWS*CELL;
+    fitMazeCanvas();
 
     maze = makeMaze(mulberry32(seedFn()), COLS, ROWS);
     const starts = startingPositions(COLS, ROWS, roster.length);
@@ -765,7 +824,7 @@
       const card=document.createElement('div');
       card.className='lane-card lane-'+(idx % 8);
       card.innerHTML =
-        '<div class="lane-head"><span class="lane-name">'+escapeHtml(name)+'</span><span class="lane-status" data-role="status">Searching...</span></div>'+
+        '<div class="lane-head"><span class="lane-name">'+escapeHtml(name)+'</span><span class="lane-status" data-role="status">Ready!</span></div>'+
         '<div class="progress-outer"><div class="progress-inner" data-role="bar"></div></div>'+
         '<div class="lane-foot"><span data-role="count">0 / '+BALL_COUNT+' found</span><span data-role="time"></span></div>';
       laneGrid.appendChild(card);
@@ -994,6 +1053,21 @@
   function tick(){
     const now = Date.now();
     const elapsed = now - startTimestamp;
+
+    if (elapsed < 0){
+      // pre-race countdown — show everyone standing at their start positions and count
+      // down to go, rather than starting the clock/hunt logic early
+      countdownOverlay.style.display = 'flex';
+      countdownNum.textContent = Math.ceil(-elapsed/1000);
+      elapsedClock.textContent = '00:00:00';
+      statusText.textContent = 'Starting soon...';
+      $('liveDot').classList.remove('live');
+      drawSharedMaze(mazeCtx, 0);
+      rafId = requestAnimationFrame(tick);
+      return;
+    }
+    countdownOverlay.style.display = 'none';
+    $('liveDot').classList.add('live');
     elapsedClock.textContent = fmtClock(elapsed);
 
     drawSharedMaze(mazeCtx, elapsed);
