@@ -114,6 +114,13 @@
   .share-btn{margin-left:auto;}
 
   /* ---- Layout: standings + lane grid ---- */
+  .maze-panel{margin-bottom:18px;}
+  .maze-canvas-wrap{
+    display:flex; justify-content:center; overflow-x:auto; background:#FFFBF2;
+    border-radius:12px; padding:10px;
+  }
+  #mazeCanvas{display:block; border-radius:6px; max-width:none;}
+
   .race-layout{display:grid; grid-template-columns:230px 1fr; gap:18px; align-items:start;}
   @media (max-width:820px){ .race-layout{grid-template-columns:1fr;} }
 
@@ -140,8 +147,6 @@
   .lane-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
   .lane-name{font-family:'Fredoka',sans-serif; font-size:15px; color:var(--lc, var(--ink));}
   .lane-status{font-size:10.5px; color:var(--ink-dim); font-weight:700;}
-  .lane-canvas-wrap{display:flex; justify-content:center; margin-bottom:8px; background:#FFFBF2; border-radius:10px; padding:4px;}
-  canvas{display:block; border-radius:6px;}
   .progress-outer{
     background:#FFF0D6; border:2px solid var(--card-line); border-radius:20px;
     height:10px; overflow:hidden; margin-bottom:6px;
@@ -184,9 +189,9 @@
   <header class="top">
     <div class="title">
       <h1>Grandma's Peanut Butter Ball Prowl</h1>
-      <span class="sub">search out every peanut butter ball, first one done picks first!</span>
+      <span class="sub">everyone searches Grandma's whole house at once, first to find any 10 picks first — but watch out, Grandma and Grandpa are both on patrol and will freeze you if they catch you!</span>
     </div>
-    <span class="badge-tag">🏆 FIRST TO FIND ALL 10 PEANUT BUTTER BALLS = FIRST PICK</span>
+    <span class="badge-tag">🏆 FIRST TO FIND ANY 10 PEANUT BUTTER BALLS = FIRST PICK</span>
   </header>
 
   <!-- SETUP -->
@@ -210,6 +215,12 @@
       <span class="elapsed">ELAPSED <b id="elapsedClock">00:00:00</b></span>
       <span id="foundCount">0 of 0 peanut butter balls found</span>
       <button class="btn btn-ghost share-btn" id="shareBtn">Copy Sync Link</button>
+    </div>
+    <div class="panel maze-panel">
+      <div class="panel-label">Grandma's House</div>
+      <div class="maze-canvas-wrap">
+        <canvas id="mazeCanvas"></canvas>
+      </div>
     </div>
     <div class="race-layout">
       <div>
@@ -263,13 +274,25 @@
   }
 
   // ===================== Maze =====================
-  const COLS = 11, ROWS = 8, CELL = 26;
+  // Maze size now scales with roster size (see mazeDims below) rather than being fixed.
+  let COLS = 11, ROWS = 8, CELL = 26;
 
-  function makeMaze(rng){
+  function mazeDims(racerCount, ballsPerRacer){
+    const totalBalls = racerCount * ballsPerRacer;
+    const targetDensity = 0.114; // matches the original single-lane density (10 balls / 88 cells)
+    const cellsNeeded = totalBalls / targetDensity;
+    const ASPECT = 11/8; // keep the house-shape aspect ratio from the original maze
+    let rows = Math.round(Math.sqrt(cellsNeeded / ASPECT));
+    let cols = Math.round(rows * ASPECT);
+    rows = Math.max(rows, 7); cols = Math.max(cols, 9);
+    return { cols, rows };
+  }
+
+  function makeMaze(rng, cols, rows){
     const cells = [];
-    for (let y=0;y<ROWS;y++){
+    for (let y=0;y<rows;y++){
       const row=[];
-      for (let x=0;x<COLS;x++) row.push({N:true,E:true,S:true,W:true,visited:false});
+      for (let x=0;x<cols;x++) row.push({N:true,E:true,S:true,W:true,visited:false});
       cells.push(row);
     }
     const at = (x,y)=>cells[y][x];
@@ -286,7 +309,7 @@
       let advanced=false;
       for (const [dx,dy,wallHere,wallThere] of dirs){
         const nx=cx+dx, ny=cy+dy;
-        if (nx<0||nx>=COLS||ny<0||ny>=ROWS) continue;
+        if (nx<0||nx>=cols||ny<0||ny>=rows) continue;
         if (at(nx,ny).visited) continue;
         at(cx,cy)[wallHere]=false;
         at(nx,ny)[wallThere]=false;
@@ -297,93 +320,302 @@
       }
       if (!advanced) stack.pop();
     }
-    for (let y=0;y<ROWS;y++){
-      for (let x=0;x<COLS;x++){
-        if (x<COLS-1 && at(x,y).E && rng()<0.18){ at(x,y).E=false; at(x+1,y).W=false; }
-        if (y<ROWS-1 && at(x,y).S && rng()<0.18){ at(x,y).S=false; at(x,y+1).N=false; }
+    for (let y=0;y<rows;y++){
+      for (let x=0;x<cols;x++){
+        if (x<cols-1 && at(x,y).E && rng()<0.18){ at(x,y).E=false; at(x+1,y).W=false; }
+        if (y<rows-1 && at(x,y).S && rng()<0.18){ at(x,y).S=false; at(x,y+1).N=false; }
       }
     }
-    return { cells };
+    return { cells, cols, rows };
   }
   function neighbors(maze,x,y){
     const c = maze.cells[y][x];
     const out=[];
     if (!c.N && y>0) out.push([x,y-1]);
-    if (!c.S && y<ROWS-1) out.push([x,y+1]);
-    if (!c.E && x<COLS-1) out.push([x+1,y]);
+    if (!c.S && y<maze.rows-1) out.push([x,y+1]);
+    if (!c.E && x<maze.cols-1) out.push([x+1,y]);
     if (!c.W && x>0) out.push([x-1,y]);
     return out;
   }
-  function bfsPath(maze,start,goal){
-    const key=(x,y)=>y*COLS+x;
-    const q=[start]; const cameFrom=new Map(); const seen=new Set([key(...start)]);
+
+  // ===================== Starting positions (spread around the perimeter) =====================
+  function perimeterCells(cols, rows){
+    const cells = [];
+    for (let x=0;x<cols;x++) cells.push([x,0]);
+    for (let y=1;y<rows;y++) cells.push([cols-1,y]);
+    for (let x=cols-2;x>=0;x--) cells.push([x,rows-1]);
+    for (let y=rows-2;y>0;y--) cells.push([0,y]);
+    return cells;
+  }
+  function startingPositions(cols, rows, n){
+    const perim = perimeterCells(cols, rows);
+    const starts = [];
+    for (let i=0;i<n;i++){
+      const idx = Math.floor(i * perim.length / n);
+      starts.push(perim[idx]);
+    }
+    return starts;
+  }
+
+  // ===================== Ball placement (one shared pool, no ownership) =====================
+  const BALL_COUNT = 10; // how many each racer needs to find
+  const EXTRA_BALLS_PER_RACER = 2; // pool has more than needed, so some are left over at the end
+  const POOL_BALLS_PER_RACER = BALL_COUNT + EXTRA_BALLS_PER_RACER;
+  const STEP_MIN_MS = 2100, STEP_MAX_MS = 10750; // 2x speed (was 4200-21500 / ~15min average)
+
+  function placeSharedBalls(maze, starts, seedFn, totalBalls){
+    const occupied = new Set(starts.map(([x,y])=>y*maze.cols+x));
+    const allCells=[];
+    for (let y=0;y<maze.rows;y++) for (let x=0;x<maze.cols;x++) allCells.push([x,y]);
+    const rng = mulberry32(seedFn());
+    const candidates = allCells.filter(([x,y])=>!occupied.has(y*maze.cols+x));
+    for (let i=candidates.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=candidates[i]; candidates[i]=candidates[j]; candidates[j]=t; }
+    return candidates.slice(0, totalBalls).map(([x,y])=>({x,y}));
+  }
+
+  // Single early-exit BFS from a racer's position to the nearest available ball. BFS visits
+  // cells in non-decreasing distance order, so the first available-ball cell it reaches IS
+  // the nearest one — this avoids running a separate BFS per remaining ball at every step,
+  // which is what made the naive version O(balls × cells) per step instead of O(cells).
+  function bfsNearestAvailable(maze, start, availableCellMap){
+    const key=(x,y)=>y*maze.cols+x;
+    const startKey = key(...start);
+    const q=[start]; const cameFrom=new Map(); const seen=new Set([startKey]);
     while(q.length){
       const cur=q.shift();
-      if (cur[0]===goal[0] && cur[1]===goal[1]) break;
+      const ck=key(...cur);
+      if (availableCellMap.has(ck)){
+        const path=[cur]; let k2=ck;
+        while (k2!==startKey){ const prev=cameFrom.get(k2); path.push(prev); k2=key(...prev); }
+        path.reverse();
+        return { path, ballIdx: availableCellMap.get(ck) };
+      }
       for (const n of neighbors(maze,cur[0],cur[1])){
         const k=key(...n);
         if (!seen.has(k)){ seen.add(k); cameFrom.set(k,cur); q.push(n); }
       }
     }
-    const gk=key(...goal);
-    if (!seen.has(gk)) return null;
-    const path=[goal]; let ck=gk;
-    while (ck!==key(...start)){ const prev=cameFrom.get(ck); path.push(prev); ck=key(...prev); }
-    path.reverse();
-    return path;
+    return null;
   }
 
-  // ===================== Per-lane simulation =====================
-  const BALL_COUNT = 10;
-  const STEP_MIN_MS = 10000, STEP_MAX_MS = 48000; // tuned for ~30min average race (was 20500-272000 / ~4hr)
+  // ===================== Grandma & Grandpa (hazards) =====================
+  // Grandma and Grandpa both actively hunt racers, using the same "recompute best target
+  // fresh every step" approach as racers use for balls — so each is a genuine participant in
+  // the same interleaved event timeline, not an independent wanderer. A hazard can only freeze
+  // a racer if it has a clear, unobstructed line of sight to them (walls block it) and is close
+  // enough. A few guardrails keep any one racer from getting piled on: a short immunity window
+  // after unfreezing, a longer "hunt elsewhere for a bit" cooldown that applies to both hazards
+  // once a racer's been caught, a hard cap on total catches from any *one* hazard for the whole race, and a
+  // temporary speed boost right when a freeze ends so a caught racer actually has a shot at
+  // escaping. To keep the two of them from dogpiling the same racer, each hazard only chases
+  // racers it's at least as close to (by maze distance) as the other hazard is — a simple
+  // "divide and conquer" split that's recomputed fresh every step as everyone moves around,
+  // with ties broken toward Grandma so coverage never overlaps.
+  const HAZARD_SPEED_FACTOR = 2.3; // hazards move at this multiple of racers' average pace
+  const HAZARD_STEP_BASE_MS = ((STEP_MIN_MS+STEP_MAX_MS)/2) / HAZARD_SPEED_FACTOR;
+  const HAZARD_STEP_JITTER = 0.12; // tight jitter band — enough texture without the old ebb-and-flow swings
+  const GRANDMA_STEP_MIN_MS = HAZARD_STEP_BASE_MS*(1-HAZARD_STEP_JITTER), GRANDMA_STEP_MAX_MS = HAZARD_STEP_BASE_MS*(1+HAZARD_STEP_JITTER);
+  const CATCH_RADIUS = 2; // manhattan distance, along a clear sightline
+  const FREEZE_MIN_MS = 3000, FREEZE_MAX_MS = 6000; // "a few seconds"
+  const FREEZE_IMMUNITY_MS = 20000; // can't be caught again for a bit after unfreezing
+  const GRANDMA_TARGET_AVOID_MS = 40000; // after being caught, both hazards leave that racer alone for a while
+  const MAX_CATCHES_PER_RACER = 3; // per-hazard cap — Grandma can catch a racer up to 3 times, and separately so can Grandpa
+  const ESCAPE_BOOST_MS = 5000; // how long the post-freeze speed boost lasts
+  const ESCAPE_BOOST_FACTOR = 0.2; // 5x speed — a real burst to break away from a hazard camping nearby
+  const LAST_RACER_SPEED_MULT = 5; // the last racer standing moves at this multiple of normal pace, so a lone straggler with hazards camped nearby can always break away
 
-  function simulateLane(maze, placeRng, timeRng){
-    const allCells=[];
-    for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) allCells.push([x,y]);
-    const candidates = allCells.filter(([x,y])=>!(x===0&&y===0));
-    for (let i=candidates.length-1;i>0;i--){ const j=Math.floor(placeRng()*(i+1)); const t=candidates[i]; candidates[i]=candidates[j]; candidates[j]=t; }
-    const ballCells = candidates.slice(0, BALL_COUNT);
-    const balls = ballCells.map(([x,y])=>({x,y,found:false}));
-
-    let pos=[0,0];
-    const fullPath=[pos];
-    const collectStepByBall = {};
-
-    function collectIfHere(){
-      balls.forEach((b,i)=>{
-        if (!b.found && b.x===pos[0] && b.y===pos[1]){
-          b.found = true;
-          collectStepByBall[i] = fullPath.length-1;
-        }
-      });
+  // Line of sight only exists along a straight row/column (grid mazes don't have diagonal
+  // openings), and only if every wall between the two cells is open — she can't see or freeze
+  // anyone through a wall.
+  function hasLineOfSight(maze, a, b, maxDist){
+    const dx = b[0]-a[0], dy = b[1]-a[1];
+    const dist = Math.abs(dx)+Math.abs(dy);
+    if (dist===0) return true;
+    if (dist>maxDist) return false;
+    if (dx!==0 && dy!==0) return false; // not aligned on a straight row/column
+    const stepX = Math.sign(dx), stepY = Math.sign(dy);
+    let cx=a[0], cy=a[1];
+    while (cx!==b[0] || cy!==b[1]){
+      const cell = maze.cells[cy][cx];
+      if (stepX===1 && cell.E) return false;
+      if (stepX===-1 && cell.W) return false;
+      if (stepY===1 && cell.S) return false;
+      if (stepY===-1 && cell.N) return false;
+      cx += stepX; cy += stepY;
     }
-    collectIfHere();
+    return true;
+  }
+
+  // Full BFS distance map from a point — used to decide, each step, which hazard is closer
+  // to a given racer (the "divide and conquer" split).
+  function bfsDistanceMap(maze, start){
+    const key=(x,y)=>y*maze.cols+x;
+    const dist = new Map([[key(...start), 0]]);
+    const q=[start];
+    while(q.length){
+      const cur=q.shift();
+      const cd = dist.get(key(...cur));
+      for (const n of neighbors(maze,cur[0],cur[1])){
+        const k=key(...n);
+        if (!dist.has(k)){ dist.set(k, cd+1); q.push(n); }
+      }
+    }
+    return dist;
+  }
+
+  // ===================== Joint simulation over a shared, contested ball pool =====================
+  // Everyone shares the same pool of peanut butter balls — first to reach any given ball
+  // claims it. Because one racer's pickup changes what's left for everyone else, and the
+  // hazards actively hunt whoever's nearest, this has to be simulated as a single interleaved
+  // timeline (whichever participant — racer or hazard — is "behind" in simulated time acts
+  // next) rather than computing everyone's path independently.
+  function simulateSharedRace(maze, starts, balls, timeRngs, stepMinMs, stepMaxMs, needed, hazardStarts, hazardTimeRngs, hazardNames, freezeRngs){
+    const totalRacers = starts.length;
+    const availableMap = new Map(); // cellKey -> ballIndex
+    balls.forEach((b,i)=> availableMap.set(b.y*maze.cols+b.x, i));
+    const racers = starts.map((start, i)=>({
+      pos: start, fullPath:[start], cumTime:[0], collectStepByBall:{},
+      foundCount:0, finished:false, finishMs:null, timeRng: timeRngs[i],
+      frozenUntil: 0, immuneUntil: 0, hazardAvoidUntil: 0, speedBoostUntil: 0,
+      freezeIntervals: [], boostIntervals: [], freezeRng: freezeRngs[i], catchCountByHazard: {}
+    }));
+    const hazards = hazardStarts.map((start,i)=>({
+      name: hazardNames[i], pos: start, fullPath:[start], cumTime:[0], timeRng: hazardTimeRngs[i]
+    }));
+
+    function tryFreeze(racer, atTime, hazard){
+      if ((racer.catchCountByHazard[hazard.name]||0)>=MAX_CATCHES_PER_RACER) return;
+      if (atTime>=racer.immuneUntil && hasLineOfSight(maze, hazard.pos, racer.pos, CATCH_RADIUS)){
+        const freezeDur = FREEZE_MIN_MS + racer.freezeRng()*(FREEZE_MAX_MS-FREEZE_MIN_MS);
+        racer.frozenUntil = atTime + freezeDur;
+        racer.immuneUntil = racer.frozenUntil + FREEZE_IMMUNITY_MS;
+        racer.hazardAvoidUntil = racer.frozenUntil + GRANDMA_TARGET_AVOID_MS;
+        racer.speedBoostUntil = racer.frozenUntil + ESCAPE_BOOST_MS;
+        racer.catchCountByHazard[hazard.name] = (racer.catchCountByHazard[hazard.name]||0) + 1;
+        racer.freezeIntervals.push([atTime, racer.frozenUntil, hazard.name]);
+        racer.boostIntervals.push([racer.frozenUntil, racer.speedBoostUntil]);
+      }
+    }
 
     let guard=0;
-    while (balls.some(b=>!b.found) && guard<5000){
+    while (racers.some(r=>!r.finished) && guard<800000){
       guard++;
-      const remaining = balls.filter(b=>!b.found);
-      let best=null;
-      for (const b of remaining){
-        const p = bfsPath(maze,pos,[b.x,b.y]);
-        if (p && (!best || p.length<best.length)) best=p;
+      // pick earliest actor among unfinished racers + all hazards
+      let actor=null, actorIsHazard=false;
+      racers.forEach(r=>{
+        if (r.finished) return;
+        if (!actor || r.cumTime[r.cumTime.length-1] < actor.cumTime[actor.cumTime.length-1]){ actor=r; actorIsHazard=false; }
+      });
+      hazards.forEach(h=>{
+        if (!actor || h.cumTime[h.cumTime.length-1] < actor.cumTime[actor.cumTime.length-1]){ actor=h; actorIsHazard=true; }
+      });
+
+      if (actorIsHazard){
+        const hazard = actor;
+        const hazardIdx = hazards.indexOf(hazard);
+        const now = hazard.cumTime[hazard.cumTime.length-1];
+        // prefer racers that haven't been caught recently, aren't immune, and aren't at
+        // *this hazard's* catch cap yet; fall back progressively if that leaves nobody to chase
+        let targetMap = new Map();
+        const atCap = r => (r.catchCountByHazard[hazard.name]||0)>=MAX_CATCHES_PER_RACER;
+        racers.forEach((r,i)=>{ if (!r.finished && !atCap(r) && now>=r.immuneUntil && now>=r.hazardAvoidUntil) targetMap.set(r.pos[1]*maze.cols+r.pos[0], i); });
+        if (targetMap.size===0){
+          racers.forEach((r,i)=>{ if (!r.finished && !atCap(r) && now>=r.immuneUntil) targetMap.set(r.pos[1]*maze.cols+r.pos[0], i); });
+        }
+        if (targetMap.size===0){
+          racers.forEach((r,i)=>{ if (!r.finished && !atCap(r)) targetMap.set(r.pos[1]*maze.cols+r.pos[0], i); });
+        }
+        if (targetMap.size===0){
+          racers.forEach((r,i)=>{ if (!r.finished) targetMap.set(r.pos[1]*maze.cols+r.pos[0], i); });
+        }
+
+        // divide and conquer: with more than one hazard, only chase racers this hazard is at
+        // least as close to (by maze distance) as every other hazard — recomputed fresh each
+        // step so the split adapts as everyone moves. Ties favor the lower-indexed hazard
+        // (Grandma) so the two never both claim the same racer. Falls back to the unfiltered
+        // set if that split would leave this hazard with nobody to chase.
+        if (hazards.length>1 && targetMap.size>0){
+          const selfDist = bfsDistanceMap(maze, hazard.pos);
+          const others = hazards.map((h,i)=>i===hazardIdx?null:{idx:i, dist:bfsDistanceMap(maze,h.pos)}).filter(Boolean);
+          const filtered = new Map();
+          targetMap.forEach((racerIdx, cellKey)=>{
+            const sd = selfDist.has(cellKey) ? selfDist.get(cellKey) : Infinity;
+            const winsAll = others.every(o=>{
+              const od = o.dist.has(cellKey) ? o.dist.get(cellKey) : Infinity;
+              return hazardIdx < o.idx ? sd<=od : sd<od;
+            });
+            if (winsAll) filtered.set(cellKey, racerIdx);
+          });
+          if (filtered.size>0) targetMap = filtered;
+        }
+
+        const found = bfsNearestAvailable(maze, hazard.pos, targetMap);
+        if (!found || found.path.length<2){
+          hazard.fullPath.push(hazard.pos);
+          hazard.cumTime.push(now + GRANDMA_STEP_MIN_MS);
+        } else {
+          hazard.pos = found.path[1];
+          hazard.fullPath.push(hazard.pos);
+          const dur = GRANDMA_STEP_MIN_MS + hazard.timeRng()*(GRANDMA_STEP_MAX_MS-GRANDMA_STEP_MIN_MS);
+          hazard.cumTime.push(now+dur);
+        }
+        const newTime = hazard.cumTime[hazard.cumTime.length-1];
+        racers.forEach(r=>{ if (!r.finished) tryFreeze(r, newTime, hazard); });
+        continue;
       }
-      const pathToTake = best;
-      if (!pathToTake || pathToTake.length<2) break;
-      pos = pathToTake[1];
-      fullPath.push(pos);
-      collectIfHere();
+
+      // racer's turn
+      const racer = actor;
+      const now = racer.cumTime[racer.cumTime.length-1];
+      if (now < racer.frozenUntil){
+        // waiting out a freeze — jump straight to the unfreeze time, no movement
+        racer.fullPath.push(racer.pos);
+        racer.cumTime.push(racer.frozenUntil);
+        continue;
+      }
+
+      if (availableMap.size===0) break;
+
+      // recompute nearest available ball fresh each step (also naturally handles
+      // a racer's target having just been sniped by someone else)
+      const found = bfsNearestAvailable(maze, racer.pos, availableMap);
+      if (!found || found.path.length<2) break; // path includes the start cell at index 0
+
+      racer.pos = found.path[1]; // first step away from current position
+      racer.fullPath.push(racer.pos);
+      const boosted = now < racer.speedBoostUntil;
+      const boostMult = boosted ? 1/ESCAPE_BOOST_FACTOR : 1; // e.g. 5x during a fresh-unfreeze burst
+      // as fewer racers are still out searching, everyone left speeds up — scales from 1x
+      // (whole roster still going) up to LAST_RACER_SPEED_MULT (only one racer left) so the
+      // endgame doesn't turn into someone getting cornered and stuck by two hazards near them.
+      const remainingCount = racers.filter(r=>!r.finished).length;
+      const remainingMult = totalRacers>1
+        ? 1 + (LAST_RACER_SPEED_MULT-1) * (totalRacers-remainingCount)/(totalRacers-1)
+        : LAST_RACER_SPEED_MULT;
+      const speedMult = Math.max(boostMult, remainingMult); // whichever effect is stronger wins, not stacked
+      const effMin = stepMinMs/speedMult, effMax = stepMaxMs/speedMult;
+      const dur = effMin + racer.timeRng()*(effMax-effMin);
+      const newTime = racer.cumTime[racer.cumTime.length-1] + dur;
+      racer.cumTime.push(newTime);
+
+      const posKey = racer.pos[1]*maze.cols+racer.pos[0];
+      if (availableMap.has(posKey)){
+        const bi = availableMap.get(posKey);
+        availableMap.delete(posKey);
+        racer.collectStepByBall[bi] = racer.fullPath.length-1;
+        racer.foundCount++;
+      }
+
+      // a racer can walk right into a stationary-this-instant hazard, so check both
+      hazards.forEach(h=>tryFreeze(racer, newTime, h));
+
+      if (racer.foundCount>=needed){
+        racer.finished = true;
+        racer.finishMs = racer.cumTime[racer.cumTime.length-1];
+      }
     }
 
-    // per-step timing (deterministic via timeRng), cumulative ms
-    const stepDurations=[0];
-    for (let i=1;i<fullPath.length;i++){
-      stepDurations.push(STEP_MIN_MS + timeRng()*(STEP_MAX_MS-STEP_MIN_MS));
-    }
-    const cumTime=[0];
-    for (let i=1;i<stepDurations.length;i++) cumTime.push(cumTime[i-1]+stepDurations[i]);
-
-    return { balls, fullPath, cumTime, collectStepByBall, finishMs: cumTime[cumTime.length-1] };
+    return { racers, hazards };
   }
 
   // ===================== State =====================
@@ -401,7 +633,8 @@
         raceArea=$('raceArea'), resultsArea=$('resultsArea'), laneGrid=$('laneGrid'),
         standingsList=$('standingsList'), elapsedClock=$('elapsedClock'), foundCount=$('foundCount'),
         statusText=$('statusText'), shareBtn=$('shareBtn'), cutsheetBody=$('cutsheetBody'),
-        rerunBtn=$('rerunBtn'), banner=$('banner');
+        rerunBtn=$('rerunBtn'), banner=$('banner'),
+        mazeCanvas=$('mazeCanvas'), mazeCtx=mazeCanvas.getContext('2d');
 
   function renderChips(){
     chipList.innerHTML='';
@@ -474,6 +707,11 @@
     return false;
   }
 
+  const LANE_COLORS = ['#FF6F9C','#FF9F45','#F4C430','#6BCB77','#4D96FF','#B983FF','#2EC4B6','#FF6B6B'];
+  let sharedBalls = []; // {x,y} — the shared pool, drawn in drawSharedMaze()
+  let ballClaimTime = []; // parallel array: elapsed ms at which each ball was claimed (Infinity if never)
+  let hazards = []; // [{name, fullPath, cumTime}, ...] — Grandma and Grandpa's simulated paths
+
   function beginRace(){
     setupPanel.style.display='none';
     raceArea.style.display='block';
@@ -482,33 +720,58 @@
     standingsList.innerHTML='';
     for (let i=0;i<roster.length;i++){
       const li=document.createElement('li');
-      li.innerHTML = '<span class="pick-num">'+(i+1)+'</span><span class="pname" style="color:var(--text-dim);">—</span>';
+      li.innerHTML = '<span class="pick-num">'+(i+1)+'</span><span class="pname" style="color:var(--ink-dim);">—</span>';
       standingsList.appendChild(li);
     }
 
-    const seedFn = hashSeed('PB25-'+raceSeedVal);
-    maze = makeMaze(mulberry32(seedFn()));
+    const seedFn = hashSeed('GPBP-'+raceSeedVal);
+
+    // board size is based on roster size only — Grandma doesn't count toward it
+    const dims = mazeDims(roster.length, POOL_BALLS_PER_RACER);
+    COLS = dims.cols; ROWS = dims.rows;
+    CELL = Math.max(12, Math.min(26, Math.floor(1060 / COLS)));
+    mazeCanvas.width = COLS*CELL;
+    mazeCanvas.height = ROWS*CELL;
+
+    maze = makeMaze(mulberry32(seedFn()), COLS, ROWS);
+    const starts = startingPositions(COLS, ROWS, roster.length);
+
+    // Grandma starts in the center; Grandpa starts a quadrant away so the two of them
+    // naturally split up the house from the get-go instead of both beelining the same spot.
+    const grandmaStart = [Math.floor(COLS/2), Math.floor(ROWS/2)];
+    const grandpaStart = [Math.floor(COLS/4), Math.floor(ROWS/4)];
+    const gTimeRng = mulberry32((seedFn() ^ 0x5A5A5A5A) >>> 0);
+    const gpTimeRng = mulberry32((seedFn() ^ 0xA5A5A5A5) >>> 0);
+
+    const totalBalls = roster.length * POOL_BALLS_PER_RACER;
+    sharedBalls = placeSharedBalls(maze, starts.concat([grandmaStart, grandpaStart]), seedFn, totalBalls);
+
+    const timeRngs = roster.map((_, idx) => mulberry32((seedFn() ^ ((idx+1)*0x85EBCA6B)) >>> 0));
+    const freezeRngs = roster.map((_, idx) => mulberry32((seedFn() ^ ((idx+1)*0x2545F491)) >>> 0));
+    const { racers: results, hazards: hazardResults } = simulateSharedRace(maze, starts, sharedBalls, timeRngs, STEP_MIN_MS, STEP_MAX_MS, BALL_COUNT, [grandmaStart, grandpaStart], [gTimeRng, gpTimeRng], ['Grandma','Grandpa'], freezeRngs);
+    hazards = hazardResults;
+
+    ballClaimTime = new Array(sharedBalls.length).fill(Infinity);
+    results.forEach(r=>{
+      Object.entries(r.collectStepByBall).forEach(([bi, step])=>{
+        ballClaimTime[bi] = r.cumTime[step];
+      });
+    });
 
     laneGrid.innerHTML='';
     lanes = roster.map((name, idx)=>{
-      const placeRng = mulberry32((seedFn() ^ ((idx+1)*0x9E3779B1)) >>> 0);
-      const timeRng  = mulberry32((seedFn() ^ ((idx+1)*0x85EBCA6B)) >>> 0);
-      const sim = simulateLane(maze, placeRng, timeRng);
-
-      const laneColorHex = ['#FF6F9C','#FF9F45','#F4C430','#6BCB77','#4D96FF','#B983FF','#2EC4B6','#FF6B6B'][idx % 8];
+      const sim = results[idx];
+      const laneColorHex = LANE_COLORS[idx % 8];
       const card=document.createElement('div');
       card.className='lane-card lane-'+(idx % 8);
       card.innerHTML =
         '<div class="lane-head"><span class="lane-name">'+escapeHtml(name)+'</span><span class="lane-status" data-role="status">Searching...</span></div>'+
-        '<div class="lane-canvas-wrap"><canvas width="'+(COLS*CELL)+'" height="'+(ROWS*CELL)+'"></canvas></div>'+
         '<div class="progress-outer"><div class="progress-inner" data-role="bar"></div></div>'+
         '<div class="lane-foot"><span data-role="count">0 / '+BALL_COUNT+' found</span><span data-role="time"></span></div>';
       laneGrid.appendChild(card);
 
       return {
-        name, sim, card, colorHex: laneColorHex,
-        canvas: card.querySelector('canvas'),
-        ctx: card.querySelector('canvas').getContext('2d'),
+        name, sim, card, colorHex: laneColorHex, start: starts[idx],
         statusEl: card.querySelector('[data-role="status"]'),
         barEl: card.querySelector('[data-role="bar"]'),
         countEl: card.querySelector('[data-role="count"]'),
@@ -543,14 +806,21 @@
     const rs = s%60;
     return m+'m '+rs+'s';
   }
+  function frozenIntervalAt(freezeIntervals, elapsed){
+    for (const interval of freezeIntervals){
+      const [start,end] = interval;
+      if (elapsed>=start && elapsed<end) return interval;
+    }
+    return null;
+  }
 
-  function drawMaze(ctx, sim, elapsed, laneColor){
+  function drawSharedMaze(ctx, elapsed){
     ctx.clearRect(0,0,COLS*CELL,ROWS*CELL);
     // floor
     ctx.fillStyle = '#FFF6E3';
     ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
 
-    // walls (warm chocolate, rounded feel via thicker line + round caps)
+    // walls (warm chocolate, rounded feel via thicker line + round caps) — drawn once, shared
     ctx.strokeStyle = '#B98A5E';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
@@ -567,54 +837,158 @@
     }
     ctx.stroke();
 
-    // entry marker (little doormat)
-    ctx.strokeStyle = laneColor;
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(3,3,CELL-6,CELL-6);
-
-    const curStep = stepIndexAt(sim.cumTime, elapsed);
-    // peanut butter balls
-    sim.balls.forEach((b,i)=>{
-      const found = sim.collectStepByBall[i]!==undefined && sim.collectStepByBall[i]<=curStep;
-      if (found) return;
+    // the shared pool of peanut butter balls — neutral color, disappear once anyone claims them
+    sharedBalls.forEach((b,i)=>{
+      if (ballClaimTime[i] <= elapsed) return;
       const cx = b.x*CELL+CELL/2, cy=b.y*CELL+CELL/2;
       ctx.fillStyle = '#C98A3B';
       ctx.beginPath();
-      ctx.arc(cx,cy,4.6,0,Math.PI*2);
+      ctx.arc(cx,cy,4.2,0,Math.PI*2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.beginPath();
-      ctx.arc(cx-1.3,cy-1.3,1.4,0,Math.PI*2);
+      ctx.arc(cx-1.2,cy-1.2,1.3,0,Math.PI*2);
       ctx.fill();
     });
 
-    // searcher (colored per-racer) — simple person token: body + head
-    const path = sim.fullPath;
-    const idx = Math.min(curStep, path.length-1);
-    const p0 = path[idx];
-    const p1 = path[Math.min(idx+1, path.length-1)];
-    const segStart = sim.cumTime[idx];
-    const segEnd = sim.cumTime[Math.min(idx+1, sim.cumTime.length-1)];
-    let t = segEnd>segStart ? (Math.min(elapsed,segEnd)-segStart)/(segEnd-segStart) : 1;
-    t = Math.max(0, Math.min(1,t));
-    const dx = p0[0] + (p1[0]-p0[0])*t;
-    const dy = p0[1] + (p1[1]-p0[1])*t;
-    const bounce = Math.sin((elapsed/160))*1.1; // gentle idle bounce for fun
-    const px = dx*CELL+CELL/2, py = dy*CELL+CELL/2+bounce;
-    // body
-    ctx.fillStyle = laneColor;
-    ctx.beginPath();
-    ctx.ellipse(px, py+2.5, 5.4, 6.2, 0, 0, Math.PI*2);
-    ctx.fill();
-    // head
-    ctx.fillStyle = '#F2D3B3';
-    ctx.beginPath();
-    ctx.arc(px, py-5, 3.6, 0, Math.PI*2);
-    ctx.fill();
-    // eyes
-    ctx.fillStyle = '#3A2415';
-    ctx.beginPath(); ctx.arc(px-1.3,py-5.2,0.7,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(px+1.3,py-5.2,0.7,0,Math.PI*2); ctx.fill();
+    // each racer's starting doormat and token — tinted their own color
+    lanes.forEach(lane=>{
+      const sim = lane.sim, laneColor = lane.colorHex;
+      const curStep = stepIndexAt(sim.cumTime, elapsed);
+
+      // starting doormat
+      const [sx,sy] = lane.start;
+      ctx.strokeStyle = laneColor;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx*CELL+3, sy*CELL+3, CELL-6, CELL-6);
+
+      // this racer's person token — body + head
+      const path = sim.fullPath;
+      const idx = Math.min(curStep, path.length-1);
+      const p0 = path[idx];
+      const p1 = path[Math.min(idx+1, path.length-1)];
+      const segStart = sim.cumTime[idx];
+      const segEnd = sim.cumTime[Math.min(idx+1, sim.cumTime.length-1)];
+      let t = segEnd>segStart ? (Math.min(elapsed,segEnd)-segStart)/(segEnd-segStart) : 1;
+      t = Math.max(0, Math.min(1,t));
+      const dx = p0[0] + (p1[0]-p0[0])*t;
+      const dy = p0[1] + (p1[1]-p0[1])*t;
+
+      const frozen = frozenIntervalAt(sim.freezeIntervals, elapsed);
+      const boosted = !frozen && frozenIntervalAt(sim.boostIntervals, elapsed);
+      const bounce = frozen ? 0 : Math.sin((elapsed/(boosted?70:160)))*(boosted?1.6:1.0); // quicker bounce while boosted
+      const px = dx*CELL+CELL/2, py = dy*CELL+CELL/2+bounce;
+
+      if (frozen){
+        // icy dashed ring around a caught racer
+        ctx.strokeStyle = '#7FD4E8';
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([2.5,2.5]);
+        ctx.beginPath();
+        ctx.arc(px, py-1, 9, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (boosted){
+        // bright sparkly ring while escaping at speed
+        ctx.strokeStyle = '#F4C430';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(px, py-1, 9, 0, Math.PI*2);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = frozen ? 0.55 : 1;
+      ctx.fillStyle = laneColor;
+      ctx.beginPath();
+      ctx.ellipse(px, py+2.2, 4.8, 5.6, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#F2D3B3';
+      ctx.beginPath();
+      ctx.arc(px, py-4.4, 3.2, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#3A2415';
+      ctx.beginPath(); ctx.arc(px-1.1,py-4.6,0.6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px+1.1,py-4.6,0.6,0,Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // name label, follows the token so it's easy to track who's who
+      const fontSize = Math.max(8, Math.round(CELL*0.4));
+      ctx.font = 'bold '+fontSize+'px Nunito, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.strokeText(lane.name, px, py-9);
+      ctx.fillStyle = laneColor;
+      ctx.fillText(lane.name, px, py-9);
+    });
+
+    // Grandma & Grandpa — larger, distinct tokens, drawn on top of everyone
+    hazards.forEach(hazard=>{
+      const gIdx = stepIndexAt(hazard.cumTime, elapsed);
+      const gp0 = hazard.fullPath[gIdx];
+      const gp1 = hazard.fullPath[Math.min(gIdx+1, hazard.fullPath.length-1)];
+      const gSegStart = hazard.cumTime[gIdx];
+      const gSegEnd = hazard.cumTime[Math.min(gIdx+1, hazard.cumTime.length-1)];
+      let gt = gSegEnd>gSegStart ? (Math.min(elapsed,gSegEnd)-gSegStart)/(gSegEnd-gSegStart) : 1;
+      gt = Math.max(0, Math.min(1,gt));
+      const gdx = gp0[0] + (gp1[0]-gp0[0])*gt;
+      const gdy = gp0[1] + (gp1[1]-gp0[1])*gt;
+      const gpx = gdx*CELL+CELL/2, gpy = gdy*CELL+CELL/2;
+      const isGrandma = hazard.name==='Grandma';
+      const HAZARD_COLOR = isGrandma ? '#8E5A7A' : '#4A6FA5';
+
+      // body — noticeably larger than a racer token
+      ctx.fillStyle = HAZARD_COLOR;
+      ctx.beginPath();
+      ctx.ellipse(gpx, gpy+3.2, 7.6, 8.6, 0, 0, Math.PI*2);
+      ctx.fill();
+      // head
+      ctx.fillStyle = '#F2D3B3';
+      ctx.beginPath();
+      ctx.arc(gpx, gpy-6.2, 4.6, 0, Math.PI*2);
+      ctx.fill();
+
+      if (isGrandma){
+        // gray hair bun
+        ctx.fillStyle = '#D9D3DA';
+        ctx.beginPath(); ctx.arc(gpx, gpy-10.6, 3.1, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(gpx-4.4, gpy-7.4, 2.4, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(gpx+4.4, gpy-7.4, 2.4, 0, Math.PI*2); ctx.fill();
+      } else {
+        // flat cap
+        ctx.fillStyle = '#3A4A63';
+        ctx.beginPath();
+        ctx.ellipse(gpx, gpy-9.4, 5.4, 2.6, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(gpx-0.4, gpy-10.6, 3.6, 2.2, 0, 0, Math.PI*2);
+        ctx.fill();
+        // mustache
+        ctx.fillStyle = '#B7B0AC';
+        ctx.beginPath();
+        ctx.ellipse(gpx, gpy-3.6, 2.6, 1.1, 0, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      // glasses
+      ctx.strokeStyle = '#3A2415';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(gpx-2, gpy-6, 1.6, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(gpx+2, gpy-6, 1.6, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(gpx-0.4, gpy-6); ctx.lineTo(gpx+0.4, gpy-6); ctx.stroke();
+
+      // name label
+      const gFontSize = Math.max(9, Math.round(CELL*0.42));
+      ctx.font = 'bold '+gFontSize+'px Nunito, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.strokeText(hazard.name, gpx, gpy-13);
+      ctx.fillStyle = HAZARD_COLOR;
+      ctx.fillText(hazard.name, gpx, gpy-13);
+    });
   }
 
   function tick(){
@@ -622,18 +996,18 @@
     const elapsed = now - startTimestamp;
     elapsedClock.textContent = fmtClock(elapsed);
 
+    drawSharedMaze(mazeCtx, elapsed);
+
     let totalFound=0, totalBalls=0, doneCount=0;
     lanes.forEach(lane=>{
       const sim = lane.sim;
       const curStep = stepIndexAt(sim.cumTime, elapsed);
       const foundNow = Object.values(sim.collectStepByBall).filter(s=>s<=curStep).length;
-      totalFound += foundNow; totalBalls += sim.balls.length;
+      totalFound += foundNow; totalBalls += BALL_COUNT;
 
-      drawMaze(lane.ctx, sim, elapsed, lane.colorHex);
-
-      const pct = Math.round(100*foundNow/sim.balls.length);
+      const pct = Math.round(100*foundNow/BALL_COUNT);
       lane.barEl.style.width = pct+'%';
-      lane.countEl.textContent = foundNow+' / '+sim.balls.length+' found';
+      lane.countEl.textContent = foundNow+' / '+BALL_COUNT+' found';
 
       const finished = elapsed >= sim.finishMs;
       if (finished && !lane.finished){
@@ -641,7 +1015,7 @@
         lane.card.classList.add('done');
         const badge=document.createElement('div');
         badge.className='home-badge';
-        badge.textContent='HOME!';
+        badge.textContent='DONE!';
         lane.card.appendChild(badge);
         finishedOrder.push({name:lane.name, sim, finishMs: sim.finishMs, colorHex: lane.colorHex});
         finishedOrder.sort((a,b)=>a.finishMs-b.finishMs);
@@ -649,8 +1023,15 @@
       }
       if (finished){
         doneCount++;
-        lane.statusEl.textContent='Home!';
+        lane.statusEl.textContent='Done!';
         lane.timeEl.textContent = fmtDur(sim.finishMs);
+      } else if (frozenIntervalAt(sim.freezeIntervals, elapsed)){
+        const fi = frozenIntervalAt(sim.freezeIntervals, elapsed);
+        lane.statusEl.textContent = 'Caught by '+fi[2]+'!';
+        lane.timeEl.textContent='';
+      } else if (frozenIntervalAt(sim.boostIntervals, elapsed)){
+        lane.statusEl.textContent = 'Escaping!';
+        lane.timeEl.textContent='';
       } else {
         lane.statusEl.textContent = 'Beelining to a treat!';
         lane.timeEl.textContent='';
@@ -699,7 +1080,7 @@
       tr.innerHTML =
         '<td class="pick">'+(i+1)+'</td>'+
         '<td>'+escapeHtml(f.name)+'</td>'+
-        '<td>'+f.sim.balls.length+' / '+f.sim.balls.length+'</td>'+
+        '<td>'+BALL_COUNT+' / '+BALL_COUNT+'</td>'+
         '<td>'+fmtDur(f.finishMs)+'</td>';
       cutsheetBody.appendChild(tr);
     });
